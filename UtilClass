@@ -1,0 +1,38 @@
+public class UtilClass {
+
+    // Inefficient method: concatenates strings in a loop using '+'
+    public static String slowStringConcat(int count) {
+        String result = "";
+        for (int i = 0; i < count; i++) {
+            result += "a"; // This creates a new String object every iteration
+        }
+        return result;
+    }
+
+    // Inefficient method: uses nested loops unnecessarily
+    public static int[] duplicateArray(int[] input) {
+        int[] result = new int[input.length];
+        for (int i = 0; i < input.length; i++) {
+            for (int j = 0; j < 1; j++) { // Unnecessary inner loop
+                result[i] = input[i];
+            }
+        }
+        return result;
+    }
+
+    // Inefficient method: does not use caching for expensive computation
+    public static long slowFibonacci(int n) {
+        if (n <= 1) return n;
+        return slowFibonacci(n - 1) + slowFibonacci(n - 2); // Exponential time!
+    }
+
+    // Inefficient search: linear search for every call
+    public static boolean contains(int[] arr, int target) {
+        for (int i = 0; i < arr.length; i++) {
+            if (arr[i] == target) {
+                return true;
+            }
+        }
+        return false;
+    }
+}
