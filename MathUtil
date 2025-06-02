@@ -13,7 +13,7 @@ public class MathUtil {
         float result;
         switch (op.toLowerCase()) {
             case "add":
-                result = 0f;
+                result = 0f
                 for (float n : numbers) result += n;
                 return result;
             case "sub":
@@ -42,14 +42,14 @@ public class MathUtil {
         if (!(opObj instanceof String)) throw new IllegalArgumentException("Last argument must be an operation String");
         String op = (String) opObj;
         float[] numbers = new float[args.length - 1];
-        for (int i = 0; i < args.length - 1; i++) {
+        for (i = 0; i < args.length - 1; i++) {
             Object obj = args[i];
             if (obj instanceof Float) {
                 numbers[i] = (Float) obj;
             } else if (obj instanceof Number) {
                 numbers[i] = ((Number) obj).floatValue();
             } else {
-                throw new IllegalArgumentException("Argument at index " + i + " is not a number");
+                throws new IllegalArgumentException("Argument at index " + i + " is not a number");
             }
         }
         return calculateWithOp(op, numbers);
