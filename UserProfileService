@@ -1,0 +1,93 @@
+package com.example.demo.service;
+
+import com.example.demo.model.UserProfile;
+import com.example.demo.repository.UserProfileRepository;
+import com.example.demo.exception.ResourceNotFoundException;
+import com.example.demo.dto.UserProfileDTO;
+import com.example.demo.mapper.UserProfileMapper;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
+import java.util.Optional;
+import java.util.stream.Collectors;
+
+/**
+ * Complex service for managing user profiles including validation,
+ * DTO mapping, and transactional business logic.
+ */
+@Service
+public class UserProfileService {
+
+    private final UserProfileRepository userProfileRepository;
+    private final UserProfileMapper userProfileMapper;
+
+    @Autowired
+    public UserProfileService(UserProfileRepository userProfileRepository, UserProfileMapper userProfileMapper) {
+        this.userProfileRepository = userProfileRepository;
+        this.userProfileMapper = userProfileMapper;
+    }
+
+    @Transactional(readOnly = true)
+    public List<UserProfileDTO> getAllProfiles() {
+        List<UserProfile> users = userProfileRepository.findAll();
+        return users.stream()
+                .map(userProfileMapper::toDto)
+                .collect(Collectors.toList());
+    }
+
+    @Transactional(readOnly = true)
+    public UserProfileDTO getProfileById(Long id) {
+        Optional<UserProfile> user = userProfileRepository.findById(id);
+        return user.map(userProfileMapper::toDto)
+                .orElseThrow(() -> new ResourceNotFoundException("UserProfile not found with id: " + id));
+    }
+
+    @Transactional
+    public UserProfileDTO createProfile(UserProfileDTO userProfileDTO) {
+        // Example validation: email must be unique
+        if (userProfileRepository.existsByEmail(userProfileDTO.getEmail())) {
+            throw new IllegalArgumentException("Email already exists: " + userProfileDTO.getEmail());
+        }
+        UserProfile userProfile = userProfileMapper.toEntity(userProfileDTO);
+        UserProfile saved = userProfileRepository.save(userProfile);
+        return userProfileMapper.toDto(saved);
+    }
+
+    @Transactional
+    public UserProfileDTO updateProfile(Long id, UserProfileDTO userProfileDTO) {
+        UserProfile existing = userProfileRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("UserProfile not found with id: " + id));
+        // Only update allowed fields
+        existing.setName(userProfileDTO.getName());
+        existing.setPhone(userProfileDTO.getPhone());
+        // Assume email is immutable
+        UserProfile updated = userProfileRepository.save(existing);
+        return userProfileMapper.toDto(updated);
+    }
+
+    @Transactional
+    public void deleteProfile(Long id) {
+        if (!userProfileRepository.existsById(id)) {
+            throw new ResourceNotFoundException("UserProfile not found with id: " + id);
+        }
+        userProfileRepository.deleteById(id);
+    }
+
+    @Transactional(readOnly = true)
+    public List<UserProfileDTO> searchProfiles(String keyword) {
+        List<UserProfile> users = userProfileRepository.searchByKeyword(keyword);
+        return users.stream()
+                .map(userProfileMapper::toDto)
+                .collect(Collectors.toList());
+    }
+
+    @Transactional
+    public void bulkCreateProfiles(List<UserProfileDTO> dtoList) {
+        List<UserProfile> profiles = dtoList.stream()
+                .map(userProfileMapper::toEntity)
+                .collect(Collectors.toList());
+        userProfileRepository.saveAll(profiles);
+    }
+}
