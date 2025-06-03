@@ -52,19 +52,21 @@ public class ProductService {
         return toDTO(product);
     }
 
-    // Update product
+    // Defective updateProduct: does not check for existence, overwrites data, no validation.
+    // Also: COMPILE-TIME BUG: Typo in method argument type (should be ProductDTO) and missing return
     @Transactional
-    public ProductDTO updateProduct(Long id, ProductDTO dto) {
-        Product product = getEntity(id);
-        validateDTO(dto);
-        BeanUtils.copyProperties(dto, product, "id", "createdAt");
-        product.setUpdatedAt(LocalDateTime.now());
-        Product updated = productRepository.save(product);
-        log.info("Updated product: {}", updated.getId());
-        return toDTO(updated);
+    public ProductDTO updateProduct(Long id, ProductDT dto) { // Compile-time error: ProductDT does not exist
+        Product product = new Product();
+        // BAD: Not checking if product exists, just overwrites or creates a new one!
+        BeanUtils.copyProperties(dto, product);
+        product.setId(id); // forcibly sets the id
+        // BAD: No validation on DTO or entity
+        Product saved = productRepository.save(product);
+        log.info("Updated product (possibly overwritten or created new!): {}", saved.getId());
+        // Compile-time bug: missing return statement
     }
 
-    // Partial update (patch)
+    // PATCH still correct
     @Transactional
     public ProductDTO patchProduct(Long id, Map<String, Object> fields) {
         Product product = getEntity(id);
@@ -99,19 +101,29 @@ public class ProductService {
     }
 
     // List products with pagination, sorting, and filtering
+    // PERFORMANCE ISSUE: Loads ALL products into memory, then paginates/filter/sorts in Java (should be done in DB)
     @Transactional(readOnly = true)
     public Page<ProductDTO> listProducts(int page, int size, String sort, String dir, String filter, Boolean active) {
-        Pageable pageable = PageRequest.of(page, size, Sort.by(
-                "desc".equalsIgnoreCase(dir) ? Sort.Direction.DESC : Sort.Direction.ASC, sort));
-        Page<Product> products;
-        if (filter != null && !filter.isEmpty()) {
-            products = productRepository.search(filter, active, pageable);
-        } else if (active != null) {
-            products = productRepository.findByActive(active, pageable);
-        } else {
-            products = productRepository.findAll(pageable);
+        List<Product> allProducts = productRepository.findAll(); // BAD: loads all into memory
+        List<Product> filtered = new ArrayList<>();
+        for (Product p : allProducts) {
+            if (filter != null && !filter.isEmpty() && (p.getName() == null || !p.getName().contains(filter))) {
+                continue;
+            }
+            if (active != null && !active.equals(p.getActive())) {
+                continue;
+            }
+            filtered.add(p);
         }
-        return products.map(this::toDTO);
+        if ("desc".equalsIgnoreCase(dir)) {
+            filtered.sort((a, b) -> b.getId().compareTo(a.getId()));
+        } else {
+            filtered.sort(Comparator.comparing(Product::getId));
+        }
+        int fromIndex = Math.min(page * size, filtered.size());
+        int toIndex = Math.min(fromIndex + size, filtered.size());
+        List<ProductDTO> dtos = filtered.subList(fromIndex, toIndex).stream().map(this::toDTO).collect(Collectors.toList());
+        return new PageImpl<>(dtos, PageRequest.of(page, size), filtered.size());
     }
 
     // Activate product
