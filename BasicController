@@ -3,77 +3,140 @@ package com.example.demo.controller;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/items")
 public class BasicController {
 
-    // Mock in-memory database (no thread safety, for demo only)
-    private Map<Long, String> items = new HashMap<>();
-    private long idCounter = 1;
+    // Thread-safe in-memory store
+    private final Map<Long, Item> items = new ConcurrentHashMap<>();
+    private final AtomicLong idCounter = new AtomicLong(1);
 
-    // GET /api/items - Get all items
+    // --- DTO for better structure and extensibility ---
+    static class Item {
+        private Long id;
+        private String value;
+        private boolean active = false;
+
+        public Item() {}
+        public Item(Long id, String value) {
+            this.id = id;
+            this.value = value;
+        }
+        public Long getId() { return id; }
+        public void setId(Long id) { this.id = id; }
+        public String getValue() { return value; }
+        public void setValue(String value) { this.value = value; }
+        public boolean isActive() { return active; }
+        public void setActive(boolean active) { this.active = active; }
+    }
+
+    // GET /api/items - Get all items (with optional sorting & pagination)
     @GetMapping
-    public ResponseEntity<List<String>> getAllItems() {
-        // TODO: Add sorting and pagination in the future
-        return ResponseEntity.ok(new ArrayList<>(items.values()));
+    public ResponseEntity<List<Item>> getAllItems(
+            @RequestParam(name = "sort", required = false, defaultValue = "id") String sort,
+            @RequestParam(name = "order", required = false, defaultValue = "asc") String order,
+            @RequestParam(name = "page", required = false, defaultValue = "0") int page,
+            @RequestParam(name = "size", required = false, defaultValue = "20") int size
+    ) {
+        List<Item> itemList = new ArrayList<>(items.values());
+        Comparator<Item> comparator = Comparator.comparing(
+                "value".equalsIgnoreCase(sort) ? Item::getValue : Item::getId
+        );
+        if ("desc".equalsIgnoreCase(order)) comparator = comparator.reversed();
+        itemList.sort(comparator);
+
+        int fromIndex = page * size;
+        int toIndex = Math.min(fromIndex + size, itemList.size());
+        if (fromIndex > toIndex) fromIndex = toIndex;
+        return ResponseEntity.ok(itemList.subList(fromIndex, toIndex));
     }
 
     // GET /api/items/{id} - Get item by id
     @GetMapping("/{id}")
-    public ResponseEntity<String> getItemById(@PathVariable Long id) {
-        String item = items.get(id);
-        if (item == null) {
-            return ResponseEntity.notFound().build();
-        }
-        return ResponseEntity.ok(item);
+    public ResponseEntity<Item> getItemById(@PathVariable Long id) {
+        Item item = items.get(id);
+        return (item == null) ? ResponseEntity.notFound().build() : ResponseEntity.ok(item);
     }
 
     // POST /api/items - Create item
     @PostMapping
-    public ResponseEntity<String> createItem(@RequestBody String newItem) {
-        // TODO: Validate input and handle edge cases
-        items.put(idCounter, newItem);
-        idCounter++;
-        return ResponseEntity.ok("Item created successfully!");
+    public ResponseEntity<Item> createItem(@RequestBody Item newItem) {
+        if (newItem == null || newItem.getValue() == null || newItem.getValue().trim().isEmpty()) {
+            return ResponseEntity.badRequest().body(null);
+        }
+        long id = idCounter.getAndIncrement();
+        newItem.setId(id);
+        newItem.setActive(false);
+        items.put(id, newItem);
+        return ResponseEntity.ok(newItem);
     }
 
-    // PUT /api/items/{id} - Update item by id
+    // PUT /api/items/{id} - Update item by id (full update)
     @PutMapping("/{id}")
-    public ResponseEntity<String> updateItem(@PathVariable Long id, @RequestBody String updatedItem) {
-        if (!items.containsKey(id)) {
+    public ResponseEntity<Item> updateItem(@PathVariable Long id, @RequestBody Item updatedItem) {
+        Item existing = items.get(id);
+        if (existing == null) {
             return ResponseEntity.notFound().build();
         }
-        // TODO: Implement partial updates using PATCH
-        items.put(id, updatedItem);
-        return ResponseEntity.ok("Item updated successfully!");
+        if (updatedItem.getValue() == null || updatedItem.getValue().trim().isEmpty()) {
+            return ResponseEntity.badRequest().body(null);
+        }
+        existing.setValue(updatedItem.getValue());
+        existing.setActive(updatedItem.isActive());
+        return ResponseEntity.ok(existing);
+    }
+
+    // PATCH /api/items/{id} - Partial update (only value or active)
+    @PatchMapping("/{id}")
+    public ResponseEntity<Item> patchItem(@PathVariable Long id, @RequestBody Map<String, Object> updates) {
+        Item existing = items.get(id);
+        if (existing == null) {
+            return ResponseEntity.notFound().build();
+        }
+        if (updates.containsKey("value")) {
+            String value = Objects.toString(updates.get("value"), null);
+            if (value != null && !value.trim().isEmpty()) {
+                existing.setValue(value);
+            }
+        }
+        if (updates.containsKey("active")) {
+            existing.setActive(Boolean.TRUE.equals(updates.get("active")));
+        }
+        return ResponseEntity.ok(existing);
     }
 
     // DELETE /api/items/{id} - Delete item by id
     @DeleteMapping("/{id}")
-    public ResponseEntity<String> deleteItem(@PathVariable Long id) {
-        if (!items.containsKey(id)) {
-            return ResponseEntity.notFound().build();
-        }
-        items.remove(id);
-        return ResponseEntity.ok("Item deleted successfully!");
+    public ResponseEntity<Void> deleteItem(@PathVariable Long id) {
+        Item removed = items.remove(id);
+        return (removed == null) ? ResponseEntity.notFound().build() : ResponseEntity.noContent().build();
     }
 
-    // GET /api/items/search?query=term - Search items by term
+    // GET /api/items/search?query=term - Search items by term (case-insensitive, fuzzy)
     @GetMapping("/search")
-    public ResponseEntity<List<String>> searchItems(@RequestParam String query) {
-        // TODO: Make search case-insensitive and add fuzzy match
-        List<String> result = new ArrayList<>();
-        for (String item : items.values()) {
-            if (item.contains(query)) {
-                result.add(item);
-            }
+    public ResponseEntity<List<Item>> searchItems(@RequestParam String query) {
+        if (query == null || query.trim().isEmpty()) {
+            return ResponseEntity.ok(Collections.emptyList());
         }
+        String lowerQuery = query.toLowerCase();
+        List<Item> result = items.values().stream()
+                .filter(item -> item.getValue() != null && item.getValue().toLowerCase().contains(lowerQuery))
+                .collect(Collectors.toList());
         return ResponseEntity.ok(result);
     }
 
     // PATCH /api/items/{id}/activate - Activate an item
     @PatchMapping("/{id}/activate")
-    public ResponseEntity<String> activateItem(@PathVariable Long id) {
-        if (!items.containsKey(id)) {
-            return
+    public ResponseEntity<Item> activateItem(@PathVariable Long id) {
+        Item item = items.get(id);
+        if (item == null) {
+            return ResponseEntity.notFound().build();
+        }
+        item.setActive(true);
+        return ResponseEntity.ok(item);
+    }
+}
