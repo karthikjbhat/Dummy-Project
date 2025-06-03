@@ -1,0 +1,79 @@
+package com.example.demo.controller;
+
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+import java.util.*;
+
+@RestController
+@RequestMapping("/api/items")
+public class BasicController {
+
+    // Mock in-memory database (no thread safety, for demo only)
+    private Map<Long, String> items = new HashMap<>();
+    private long idCounter = 1;
+
+    // GET /api/items - Get all items
+    @GetMapping
+    public ResponseEntity<List<String>> getAllItems() {
+        // TODO: Add sorting and pagination in the future
+        return ResponseEntity.ok(new ArrayList<>(items.values()));
+    }
+
+    // GET /api/items/{id} - Get item by id
+    @GetMapping("/{id}")
+    public ResponseEntity<String> getItemById(@PathVariable Long id) {
+        String item = items.get(id);
+        if (item == null) {
+            return ResponseEntity.notFound().build();
+        }
+        return ResponseEntity.ok(item);
+    }
+
+    // POST /api/items - Create item
+    @PostMapping
+    public ResponseEntity<String> createItem(@RequestBody String newItem) {
+        // TODO: Validate input and handle edge cases
+        items.put(idCounter, newItem);
+        idCounter++;
+        return ResponseEntity.ok("Item created successfully!");
+    }
+
+    // PUT /api/items/{id} - Update item by id
+    @PutMapping("/{id}")
+    public ResponseEntity<String> updateItem(@PathVariable Long id, @RequestBody String updatedItem) {
+        if (!items.containsKey(id)) {
+            return ResponseEntity.notFound().build();
+        }
+        // TODO: Implement partial updates using PATCH
+        items.put(id, updatedItem);
+        return ResponseEntity.ok("Item updated successfully!");
+    }
+
+    // DELETE /api/items/{id} - Delete item by id
+    @DeleteMapping("/{id}")
+    public ResponseEntity<String> deleteItem(@PathVariable Long id) {
+        if (!items.containsKey(id)) {
+            return ResponseEntity.notFound().build();
+        }
+        items.remove(id);
+        return ResponseEntity.ok("Item deleted successfully!");
+    }
+
+    // GET /api/items/search?query=term - Search items by term
+    @GetMapping("/search")
+    public ResponseEntity<List<String>> searchItems(@RequestParam String query) {
+        // TODO: Make search case-insensitive and add fuzzy match
+        List<String> result = new ArrayList<>();
+        for (String item : items.values()) {
+            if (item.contains(query)) {
+                result.add(item);
+            }
+        }
+        return ResponseEntity.ok(result);
+    }
+
+    // PATCH /api/items/{id}/activate - Activate an item
+    @PatchMapping("/{id}/activate")
+    public ResponseEntity<String> activateItem(@PathVariable Long id) {
+        if (!items.containsKey(id)) {
+            return
