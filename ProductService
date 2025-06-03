@@ -1,0 +1,189 @@
+package com.example.demo.service;
+
+import com.example.demo.dto.ProductDTO;
+import com.example.demo.entity.Product;
+import com.example.demo.exception.NotFoundException;
+import com.example.demo.repository.ProductRepository;
+
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+
+import org.springframework.beans.BeanUtils;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.*;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import javax.validation.ConstraintViolation;
+import javax.validation.Validator;
+import java.time.LocalDateTime;
+import java.util.*;
+import java.util.stream.Collectors;
+
+@Service
+@RequiredArgsConstructor
+@Slf4j
+public class ProductService {
+
+    private final ProductRepository productRepository;
+    private final Validator validator;
+
+    // Create product with validation and duplicate checking
+    @Transactional
+    public ProductDTO createProduct(ProductDTO dto) {
+        validateDTO(dto);
+        Optional<Product> existing = productRepository.findByName(dto.getName());
+        if (existing.isPresent()) {
+            throw new DataIntegrityViolationException("Product with name already exists");
+        }
+        Product product = new Product();
+        BeanUtils.copyProperties(dto, product);
+        product.setCreatedAt(LocalDateTime.now());
+        product.setUpdatedAt(LocalDateTime.now());
+        Product saved = productRepository.save(product);
+        log.info("Created product: {}", saved.getId());
+        return toDTO(saved);
+    }
+
+    // Get product by ID
+    @Transactional(readOnly = true)
+    public ProductDTO getProduct(Long id) {
+        Product product = getEntity(id);
+        return toDTO(product);
+    }
+
+    // Update product
+    @Transactional
+    public ProductDTO updateProduct(Long id, ProductDTO dto) {
+        Product product = getEntity(id);
+        validateDTO(dto);
+        BeanUtils.copyProperties(dto, product, "id", "createdAt");
+        product.setUpdatedAt(LocalDateTime.now());
+        Product updated = productRepository.save(product);
+        log.info("Updated product: {}", updated.getId());
+        return toDTO(updated);
+    }
+
+    // Partial update (patch)
+    @Transactional
+    public ProductDTO patchProduct(Long id, Map<String, Object> fields) {
+        Product product = getEntity(id);
+        boolean changed = false;
+        if (fields.containsKey("name")) {
+            product.setName((String) fields.get("name"));
+            changed = true;
+        }
+        if (fields.containsKey("price")) {
+            product.setPrice(Double.parseDouble(fields.get("price").toString()));
+            changed = true;
+        }
+        if (fields.containsKey("active")) {
+            product.setActive(Boolean.parseBoolean(fields.get("active").toString()));
+            changed = true;
+        }
+        if (changed) {
+            product.setUpdatedAt(LocalDateTime.now());
+            validateEntity(product);
+            productRepository.save(product);
+            log.info("Patched product: {}", product.getId());
+        }
+        return toDTO(product);
+    }
+
+    // Delete product
+    @Transactional
+    public void deleteProduct(Long id) {
+        Product product = getEntity(id);
+        productRepository.delete(product);
+        log.info("Deleted product: {}", id);
+    }
+
+    // List products with pagination, sorting, and filtering
+    @Transactional(readOnly = true)
+    public Page<ProductDTO> listProducts(int page, int size, String sort, String dir, String filter, Boolean active) {
+        Pageable pageable = PageRequest.of(page, size, Sort.by(
+                "desc".equalsIgnoreCase(dir) ? Sort.Direction.DESC : Sort.Direction.ASC, sort));
+        Page<Product> products;
+        if (filter != null && !filter.isEmpty()) {
+            products = productRepository.search(filter, active, pageable);
+        } else if (active != null) {
+            products = productRepository.findByActive(active, pageable);
+        } else {
+            products = productRepository.findAll(pageable);
+        }
+        return products.map(this::toDTO);
+    }
+
+    // Activate product
+    @Transactional
+    public ProductDTO activateProduct(Long id) {
+        Product product = getEntity(id);
+        product.setActive(true);
+        product.setUpdatedAt(LocalDateTime.now());
+        productRepository.save(product);
+        log.info("Activated product: {}", id);
+        return toDTO(product);
+    }
+
+    // Deactivate product
+    @Transactional
+    public ProductDTO deactivateProduct(Long id) {
+        Product product = getEntity(id);
+        product.setActive(false);
+        product.setUpdatedAt(LocalDateTime.now());
+        productRepository.save(product);
+        log.info("Deactivated product: {}", id);
+        return toDTO(product);
+    }
+
+    // Check stock and apply business logic (demo)
+    @Transactional(readOnly = true)
+    public boolean isInStock(Long id, int quantityRequested) {
+        Product product = getEntity(id);
+        return product.getStock() >= quantityRequested;
+    }
+
+    // Bulk create
+    @Transactional
+    public List<ProductDTO> bulkCreate(List<ProductDTO> dtos) {
+        List<Product> products = new ArrayList<>();
+        for (ProductDTO dto : dtos) {
+            validateDTO(dto);
+            Product product = new Product();
+            BeanUtils.copyProperties(dto, product);
+            product.setCreatedAt(LocalDateTime.now());
+            product.setUpdatedAt(LocalDateTime.now());
+            products.add(product);
+        }
+        List<Product> saved = productRepository.saveAll(products);
+        log.info("Bulk created {} products", saved.size());
+        return saved.stream().map(this::toDTO).collect(Collectors.toList());
+    }
+
+    // ----------- Helper methods -------------
+
+    private Product getEntity(Long id) {
+        return productRepository.findById(id)
+                .orElseThrow(() -> new NotFoundException("Product not found: " + id));
+    }
+
+    private ProductDTO toDTO(Product product) {
+        ProductDTO dto = new ProductDTO();
+        BeanUtils.copyProperties(product, dto);
+        return dto;
+    }
+
+    private void validateDTO(ProductDTO dto) {
+        Set<ConstraintViolation<ProductDTO>> violations = validator.validate(dto);
+        if (!violations.isEmpty()) {
+            throw new IllegalArgumentException("Validation failed: " + violations.iterator().next().getMessage());
+        }
+    }
+
+    private void validateEntity(Product product) {
+        Set<ConstraintViolation<Product>> violations = validator.validate(product);
+        if (!violations.isEmpty()) {
+            throw new IllegalArgumentException("Validation failed: " + violations.iterator().next().getMessage());
+        }
+    }
+}
