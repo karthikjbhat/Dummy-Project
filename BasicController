@@ -3,77 +3,100 @@ package com.example.demo.controller;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap; // For thread safety
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/items")
 public class BasicController {
 
-    // Mock in-memory database (no thread safety, for demo only)
-    private Map<Long, String> items = new HashMap<>();
+    // Use ConcurrentHashMap for thread safety
+    private final Map<Long, String> items = new ConcurrentHashMap<>();
     private long idCounter = 1;
 
-    // GET /api/items - Get all items
+    // Synchronized for thread-safe id increment
+    private synchronized long getNextId() {
+        return idCounter++;
+    }
+
+    // GET /api/items - Get all items, optional: sort and paginate
     @GetMapping
-    public ResponseEntity<List<String>> getAllItems() {
-        // TODO: Add sorting and pagination in the future
-        return ResponseEntity.ok(new ArrayList<>(items.values()));
+    public ResponseEntity<List<String>> getAllItems(
+            @RequestParam(required = false, defaultValue = "false") boolean sort,
+            @RequestParam(required = false, defaultValue = "0") int page,
+            @RequestParam(required = false, defaultValue = "50") int size
+    ) {
+        List<String> allItems = new ArrayList<>(items.values());
+        if (sort) {
+            allItems.sort(Comparator.naturalOrder());
+        }
+        // Simple pagination
+        int fromIndex = Math.max(0, Math.min(page * size, allItems.size()));
+        int toIndex = Math.max(fromIndex, Math.min(fromIndex + size, allItems.size()));
+        List<String> paged = allItems.subList(fromIndex, toIndex);
+        return ResponseEntity.ok(paged);
     }
 
     // GET /api/items/{id} - Get item by id
     @GetMapping("/{id}")
     public ResponseEntity<String> getItemById(@PathVariable Long id) {
         String item = items.get(id);
-        if (item == null) {
-            return ResponseEntity.notFound().build();
-        }
-        return ResponseEntity.ok(item);
+        return (item == null) ? ResponseEntity.notFound().build() : ResponseEntity.ok(item);
     }
 
     // POST /api/items - Create item
     @PostMapping
     public ResponseEntity<String> createItem(@RequestBody String newItem) {
-        // TODO: Validate input and handle edge cases
-        items.put(idCounter, newItem);
-        idCounter++;
-        return ResponseEntity.ok("Item created successfully!");
+        if (newItem == null || newItem.trim().isEmpty()) {
+            return ResponseEntity.badRequest().body("Item cannot be empty");
+        }
+        long id = getNextId();
+        items.put(id, newItem.trim());
+        return ResponseEntity.ok("Item created successfully with ID: " + id);
     }
 
     // PUT /api/items/{id} - Update item by id
     @PutMapping("/{id}")
     public ResponseEntity<String> updateItem(@PathVariable Long id, @RequestBody String updatedItem) {
+        if (updatedItem == null || updatedItem.trim().isEmpty()) {
+            return ResponseEntity.badRequest().body("Updated item cannot be empty");
+        }
         if (!items.containsKey(id)) {
             return ResponseEntity.notFound().build();
         }
-        // TODO: Implement partial updates using PATCH
-        items.put(id, updatedItem);
+        items.put(id, updatedItem.trim());
         return ResponseEntity.ok("Item updated successfully!");
     }
 
     // DELETE /api/items/{id} - Delete item by id
     @DeleteMapping("/{id}")
     public ResponseEntity<String> deleteItem(@PathVariable Long id) {
-        if (!items.containsKey(id)) {
+        if (items.remove(id) == null) {
             return ResponseEntity.notFound().build();
         }
-        items.remove(id);
         return ResponseEntity.ok("Item deleted successfully!");
     }
 
-    // GET /api/items/search?query=term - Search items by term
+    // GET /api/items/search?query=term - Search items by term (case-insensitive)
     @GetMapping("/search")
     public ResponseEntity<List<String>> searchItems(@RequestParam String query) {
-        // TODO: Make search case-insensitive and add fuzzy match
-        List<String> result = new ArrayList<>();
-        for (String item : items.values()) {
-            if (item.contains(query)) {
-                result.add(item);
-            }
+        if (query == null || query.trim().isEmpty()) {
+            return ResponseEntity.badRequest().body(Collections.emptyList());
         }
+        String lowerQuery = query.toLowerCase();
+        List<String> result = items.values().stream()
+                .filter(item -> item.toLowerCase().contains(lowerQuery))
+                .collect(Collectors.toList());
         return ResponseEntity.ok(result);
     }
 
-    // PATCH /api/items/{id}/activate - Activate an item
+    // PATCH /api/items/{id}/activate - Activate an item (dummy implementation)
     @PatchMapping("/{id}/activate")
     public ResponseEntity<String> activateItem(@PathVariable Long id) {
         if (!items.containsKey(id)) {
-            return
+            return ResponseEntity.notFound().build();
+        }
+        // In a real app, add an "active" property to the item entity.
+        return ResponseEntity.ok("Item " + id + " activated!");
+    }
+}
