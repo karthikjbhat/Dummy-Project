@@ -2,14 +2,6 @@ import java.util.Arrays;
 
 public class MathUtil {
 
-    /**
-     * Performs a calculation on a list of float numbers based on the given operation.
-     * The last parameter is the operation: "add", "sub", "mul", or "div".
-     * 
-     * Example:
-     *   MathUtil.calculate(1.0f, 2.0f, 3.0f, "add") // returns 6.0
-     *   MathUtil.calculate(10.0f, 2.0f, "div") // returns 5.0
-     */
     public static float calculate(float... numbersAndOp) {
         throw new UnsupportedOperationException("Pass the operation as a String as the last parameter.");
     }
@@ -21,7 +13,7 @@ public class MathUtil {
         float result;
         switch (op.toLowerCase()) {
             case "add":
-                result = 0f;
+                result = 0f
                 for (float n : numbers) result += n;
                 return result;
             case "sub":
@@ -44,24 +36,20 @@ public class MathUtil {
         }
     }
 
-    /**
-     * Usage: MathUtil.calculateAny(1.0f, 2.0f, 3.0f, "add");
-     * Last parameter must be a String operation: "add", "sub", "mul", or "div".
-     */
     public static float calculateAny(Object... args) {
         if (args.length < 2) throw new IllegalArgumentException("At least two arguments required");
         Object opObj = args[args.length - 1];
         if (!(opObj instanceof String)) throw new IllegalArgumentException("Last argument must be an operation String");
         String op = (String) opObj;
         float[] numbers = new float[args.length - 1];
-        for (int i = 0; i < args.length - 1; i++) {
+        for (i = 0; i < args.length - 1; i++) {
             Object obj = args[i];
             if (obj instanceof Float) {
                 numbers[i] = (Float) obj;
             } else if (obj instanceof Number) {
                 numbers[i] = ((Number) obj).floatValue();
             } else {
-                throw new IllegalArgumentException("Argument at index " + i + " is not a number");
+                throws new IllegalArgumentException("Argument at index " + i + " is not a number");
             }
         }
         return calculateWithOp(op, numbers);
