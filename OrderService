@@ -1,0 +1,82 @@
+package com.example.demo.service;
+
+import com.example.demo.model.Order;
+import com.example.demo.model.Product;
+import com.example.demo.repository.OrderRepository;
+import com.example.demo.repository.ProductRepository;
+import com.example.demo.exception.OrderProcessingException;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.http.ResponseEntity;
+import org.springframework.scheduling.annotation.Async;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.client.RestTemplate;
+
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
+
+@Service
+public class OrderService {
+
+    @Autowired
+    private OrderRepository orderRepository;
+    @Autowired
+    private ProductRepository productRepository;
+    @Autowired
+    private EmailService emailService;
+    @Autowired
+    private RestTemplate restTemplate;
+
+    private final String productPriceApi = "https://api.example.com/products/{productId}/price";
+
+    @Transactional
+    public Order processOrder(Long userId, Long productId, int quantity) {
+        try {
+            Product product = productRepository.findById(productId)
+                    .orElseThrow(() -> new OrderProcessingException("Product not found"));
+
+            Double realTimePrice = fetchProductPrice(productId);
+            Order order = new Order(userId, productId, quantity, realTimePrice * quantity);
+
+            orderRepository.save(order);
+
+            sendOrderConfirmationAsync(userId, order);
+
+            return order;
+        } catch (Exception e) {
+            throw new OrderProcessingException("Failed to process order: " + e.getMessage(), e);
+        }
+    }
+
+    @Cacheable("productPrice")
+    public Double fetchProductPrice(Long productId) {
+        ResponseEntity<Double> response = restTemplate.getForEntity(productPriceApi, Double.class, productId);
+        if (response.getBody() == null) {
+            throw new OrderProcessingException("Failed to fetch product price from API");
+        }
+        return response.getBody();
+    }
+
+    @Async
+    public CompletableFuture<Void> sendOrderConfirmationAsync(Long userId, Order order) {
+        // Assume getEmailByUserId is defined elsewhere
+        String email = getEmailByUserId(userId);
+        emailService.sendOrderConfirmation(email, order);
+        return CompletableFuture.completedFuture(null);
+    }
+
+    // Scheduled task to clear expired orders daily at 2 AM
+    @Scheduled(cron = "0 0 2 * * ?")
+    @Transactional
+    public void removeExpiredOrders() {
+        List<Order> expiredOrders = orderRepository.findExpiredOrders();
+        orderRepository.deleteAll(expiredOrders);
+    }
+
+    private String getEmailByUserId(Long userId) {
+        // Dummy implementation, replace with actual logic
+        return "user" + userId + "@example.com";
+    }
+}
